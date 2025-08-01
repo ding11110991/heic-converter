@@ -1,6 +1,7 @@
 package com.heicconverter;
 
 import android.Manifest;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -25,6 +26,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.Rotate;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -163,8 +165,45 @@ public class MainActivity extends AppCompatActivity {
                         tvStatus.append("\n转换成功: " + fileName);
                         
                         // 添加到媒体库
-                        MediaStore.Images.Media.insertImage(getContentResolver(),
-                                outputFile.getAbsolutePath(), fileName, null);
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                ContentValues values = new ContentValues();
+                                values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                                values.put(MediaStore.Images.Media.RELATIVE_PATH, 
+                                        Environment.DIRECTORY_PICTURES + "/HeicConverter");
+                                values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+                                Uri collection = MediaStore.Images.Media.getContentUri(
+                                        MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                                Uri itemUri = getContentResolver().insert(collection, values);
+
+                                if (itemUri != null) {
+                                    try (FileOutputStream fos = (FileOutputStream) getContentResolver()
+                                            .openOutputStream(itemUri)) {
+                                        if (fos != null) {
+                                            byte[] buffer = new byte[1024];
+                                            int length;
+                                            try (InputStream is = getContentResolver()
+                                                    .openInputStream(Uri.fromFile(outputFile))) {
+                                                while ((length = is.read(buffer)) > 0) {
+                                                    fos.write(buffer, 0, length);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    values.clear();
+                                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                                    getContentResolver().update(itemUri, values, null, null);
+                                }
+                            } else {
+                                MediaStore.Images.Media.insertImage(getContentResolver(),
+                                        outputFile.getAbsolutePath(), fileName, null);
+                            }
+                        } catch (IOException e) {
+                            tvStatus.append("\n保存到相册失败: " + e.getMessage());
+                        }
                         
                         // 检查是否所有图片都已转换
                         if (convertedCount[0] >= totalImages) {
