@@ -1,0 +1,2 @@
+rootProject.name = "HeicConverter"
+include ':app'
