@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -12,12 +13,16 @@ import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.exifinterface.media.ExifInterface;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.bitmap.Rotate;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -29,7 +34,6 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final int PERMISSION_REQUEST_CODE = 100;
-    private static final int PICK_IMAGES_REQUEST = 101;
     
     private ArrayList<Uri> selectedImages = new ArrayList<>();
     private Button btnSelectImages;
@@ -37,6 +41,29 @@ public class MainActivity extends AppCompatActivity {
     private RadioGroup formatGroup;
     private TextView tvStatus;
     private ExecutorService executorService;
+
+    private final ActivityResultLauncher<Intent> pickImages = registerForActivityResult(
+        new ActivityResultContracts.StartActivityForResult(),
+        result -> {
+            if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                selectedImages.clear();
+                Intent data = result.getData();
+                
+                if (data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    for (int i = 0; i < count; i++) {
+                        Uri imageUri = data.getClipData().getItemAt(i).getUri();
+                        selectedImages.add(imageUri);
+                    }
+                } else if (data.getData() != null) {
+                    selectedImages.add(data.getData());
+                }
+
+                btnConvert.setEnabled(!selectedImages.isEmpty());
+                tvStatus.setText("已选择 " + selectedImages.size() + " 张图片");
+            }
+        }
+    );
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,11 +97,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                    PERMISSION_REQUEST_CODE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.READ_MEDIA_IMAGES},
+                        PERMISSION_REQUEST_CODE);
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        },
+                        PERMISSION_REQUEST_CODE);
+            }
         }
     }
 
@@ -82,28 +123,8 @@ public class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        startActivityForResult(Intent.createChooser(intent, "选择HEIC图片"), PICK_IMAGES_REQUEST);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_IMAGES_REQUEST && resultCode == RESULT_OK) {
-            selectedImages.clear();
-            
-            if (data.getClipData() != null) {
-                int count = data.getClipData().getItemCount();
-                for (int i = 0; i < count; i++) {
-                    Uri imageUri = data.getClipData().getItemAt(i).getUri();
-                    selectedImages.add(imageUri);
-                }
-            } else if (data.getData() != null) {
-                selectedImages.add(data.getData());
-            }
-
-            btnConvert.setEnabled(!selectedImages.isEmpty());
-            tvStatus.setText("已选择 " + selectedImages.size() + " 张图片");
-        }
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/heic", "image/heif"});
+        pickImages.launch(Intent.createChooser(intent, "选择HEIC图片"));
     }
 
     private void convertImages() {
@@ -115,11 +136,12 @@ public class MainActivity extends AppCompatActivity {
 
         btnConvert.setEnabled(false);
         btnSelectImages.setEnabled(false);
+        int totalImages = selectedImages.size();
+        int[] convertedCount = {0};
 
         for (Uri imageUri : selectedImages) {
             executorService.execute(() -> {
                 try {
-                    // 创建输出文件
                     String fileName = "converted_" + System.currentTimeMillis() + "." + format;
                     File outputFile = new File(outputDir, fileName);
 
@@ -127,34 +149,45 @@ public class MainActivity extends AppCompatActivity {
                     Glide.with(this)
                             .asBitmap()
                             .load(imageUri)
+                            .transform(new Rotate(0)) // 保持原始方向
                             .submit()
                             .get()
-                            .compress(format.equals("jpg") ? android.graphics.Bitmap.CompressFormat.JPEG : android.graphics.Bitmap.CompressFormat.JPEG,
-                                    95, new FileOutputStream(outputFile));
+                            .compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, 
+                                    new FileOutputStream(outputFile));
 
                     // 复制EXIF信息
                     copyExifData(imageUri, outputFile);
 
                     runOnUiThread(() -> {
+                        convertedCount[0]++;
                         tvStatus.append("\n转换成功: " + fileName);
+                        
+                        // 添加到媒体库
                         MediaStore.Images.Media.insertImage(getContentResolver(),
                                 outputFile.getAbsolutePath(), fileName, null);
+                        
+                        // 检查是否所有图片都已转换
+                        if (convertedCount[0] >= totalImages) {
+                            btnConvert.setEnabled(true);
+                            btnSelectImages.setEnabled(true);
+                            Toast.makeText(MainActivity.this, "所有转换任务已完成", 
+                                    Toast.LENGTH_SHORT).show();
+                        }
                     });
                 } catch (Exception e) {
                     runOnUiThread(() -> {
+                        convertedCount[0]++;
                         tvStatus.append("\n转换失败: " + e.getMessage());
+                        
+                        // 检查是否所有图片都已处理
+                        if (convertedCount[0] >= totalImages) {
+                            btnConvert.setEnabled(true);
+                            btnSelectImages.setEnabled(true);
+                        }
                     });
                 }
             });
         }
-
-        executorService.execute(() -> {
-            runOnUiThread(() -> {
-                btnConvert.setEnabled(true);
-                btnSelectImages.setEnabled(true);
-                Toast.makeText(MainActivity.this, "所有转换任务已完成", Toast.LENGTH_SHORT).show();
-            });
-        });
     }
 
     private void copyExifData(Uri sourceUri, File destFile) {
@@ -194,6 +227,17 @@ public class MainActivity extends AppCompatActivity {
             destExif.saveAttributes();
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+            @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "需要存储权限才能继续操作", Toast.LENGTH_LONG).show();
+            }
         }
     }
 

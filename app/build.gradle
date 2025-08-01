@@ -18,19 +18,9 @@ android {
         }
     }
 
-    signingConfigs {
-        release {
-            storeFile file("keystore.jks")
-            storePassword "heicconverter"
-            keyAlias "heicconverter"
-            keyPassword "heicconverter"
-        }
-    }
-
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -49,7 +39,6 @@ android {
         }
     }
 
-    // 添加 namespace 声明
     namespace "com.heicconverter"
 }
 
