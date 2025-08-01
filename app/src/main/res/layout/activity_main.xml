@@ -5,17 +5,49 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <Button
-        android:id="@+id/btnSelectImages"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="选择HEIC图片" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnSelectImages"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="选择HEIC图片" />
+
+        <Button
+            android:id="@+id/btnSelectAllHeic"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="一键选择全部" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvImageCount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textSize="16sp"
+        android:text="已选择: 0 张图片" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvImagePreview"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal" />
 
     <RadioGroup
         android:id="@+id/formatGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
+        android:gravity="center"
         android:layout_marginTop="16dp">
 
         <RadioButton
@@ -40,6 +72,21 @@
         android:layout_marginTop="16dp"
         android:text="开始转换" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <TextView
+            android:id="@+id/tvProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textSize="16sp"
+            android:text="转换进度: 0/0" />
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -49,7 +96,8 @@
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:textSize="14sp" />
     </ScrollView>
 
 </LinearLayout>
