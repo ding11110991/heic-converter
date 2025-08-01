@@ -48,6 +48,9 @@ android {
             universalApk true
         }
     }
+
+    // 添加 namespace 声明
+    namespace "com.heicconverter"
 }
 
 dependencies {
