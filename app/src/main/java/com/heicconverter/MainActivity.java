@@ -26,10 +26,9 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.Rotate;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,8 +53,7 @@ public class MainActivity extends AppCompatActivity {
                 if (data.getClipData() != null) {
                     int count = data.getClipData().getItemCount();
                     for (int i = 0; i < count; i++) {
-                        Uri imageUri = data.getClipData().getItemAt(i).getUri();
-                        selectedImages.add(imageUri);
+                        selectedImages.add(data.getClipData().getItemAt(i).getUri());
                     }
                 } else if (data.getData() != null) {
                     selectedImages.add(data.getData());
@@ -131,11 +129,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void convertImages() {
         String format = formatGroup.getCheckedRadioButtonId() == R.id.rbJpg ? "jpg" : "jpeg";
-        File outputDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "HeicConverter");
-        if (!outputDir.exists()) {
-            outputDir.mkdirs();
-        }
-
+        
         btnConvert.setEnabled(false);
         btnSelectImages.setEnabled(false);
         int totalImages = selectedImages.size();
@@ -143,69 +137,53 @@ public class MainActivity extends AppCompatActivity {
 
         for (Uri imageUri : selectedImages) {
             executorService.execute(() -> {
+                String fileName = "converted_" + System.currentTimeMillis() + "." + format;
+                Uri finalUri = null;
+                
                 try {
-                    String fileName = "converted_" + System.currentTimeMillis() + "." + format;
-                    File outputFile = new File(outputDir, fileName);
+                    OutputStream fos;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ContentValues values = new ContentValues();
+                        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                        values.put(MediaStore.Images.Media.RELATIVE_PATH, 
+                                Environment.DIRECTORY_PICTURES + "/HeicConverter");
+                        
+                        finalUri = getContentResolver().insert(
+                                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                        
+                        if (finalUri == null) {
+                            throw new IOException("Failed to create new MediaStore entry.");
+                        }
+                        fos = getContentResolver().openOutputStream(finalUri);
+                    } else {
+                        File outputDir = new File(Environment.getExternalStoragePublicDirectory(
+                                Environment.DIRECTORY_PICTURES), "HeicConverter");
+                        if (!outputDir.exists()) {
+                            outputDir.mkdirs();
+                        }
+                        File outputFile = new File(outputDir, fileName);
+                        finalUri = Uri.fromFile(outputFile);
+                        fos = new FileOutputStream(outputFile);
+                    }
 
-                    // 使用Glide加载和转换图片
-                    Glide.with(this)
-                            .asBitmap()
-                            .load(imageUri)
-                            .transform(new Rotate(0)) // 保持原始方向
-                            .submit()
-                            .get()
-                            .compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, 
-                                    new FileOutputStream(outputFile));
+                    try (OutputStream f = fos) {
+                        Glide.with(this)
+                                .asBitmap()
+                                .load(imageUri)
+                                .transform(new Rotate(0)) // 保持原始方向
+                                .submit()
+                                .get()
+                                .compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, f);
+                    }
 
                     // 复制EXIF信息
-                    copyExifData(imageUri, outputFile);
+                    copyExifData(imageUri, finalUri);
 
                     runOnUiThread(() -> {
                         convertedCount[0]++;
                         tvStatus.append("\n转换成功: " + fileName);
                         
-                        // 添加到媒体库
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                ContentValues values = new ContentValues();
-                                values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-                                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-                                values.put(MediaStore.Images.Media.RELATIVE_PATH, 
-                                        Environment.DIRECTORY_PICTURES + "/HeicConverter");
-                                values.put(MediaStore.Images.Media.IS_PENDING, 1);
-
-                                Uri collection = MediaStore.Images.Media.getContentUri(
-                                        MediaStore.VOLUME_EXTERNAL_PRIMARY);
-                                Uri itemUri = getContentResolver().insert(collection, values);
-
-                                if (itemUri != null) {
-                                    try (FileOutputStream fos = (FileOutputStream) getContentResolver()
-                                            .openOutputStream(itemUri)) {
-                                        if (fos != null) {
-                                            byte[] buffer = new byte[1024];
-                                            int length;
-                                            try (InputStream is = getContentResolver()
-                                                    .openInputStream(Uri.fromFile(outputFile))) {
-                                                while ((length = is.read(buffer)) > 0) {
-                                                    fos.write(buffer, 0, length);
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    values.clear();
-                                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
-                                    getContentResolver().update(itemUri, values, null, null);
-                                }
-                            } else {
-                                MediaStore.Images.Media.insertImage(getContentResolver(),
-                                        outputFile.getAbsolutePath(), fileName, null);
-                            }
-                        } catch (IOException e) {
-                            tvStatus.append("\n保存到相册失败: " + e.getMessage());
-                        }
-                        
-                        // 检查是否所有图片都已转换
                         if (convertedCount[0] >= totalImages) {
                             btnConvert.setEnabled(true);
                             btnSelectImages.setEnabled(true);
@@ -214,11 +192,13 @@ public class MainActivity extends AppCompatActivity {
                         }
                     });
                 } catch (Exception e) {
+                    if (finalUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        getContentResolver().delete(finalUri, null, null);
+                    }
                     runOnUiThread(() -> {
                         convertedCount[0]++;
                         tvStatus.append("\n转换失败: " + e.getMessage());
                         
-                        // 检查是否所有图片都已处理
                         if (convertedCount[0] >= totalImages) {
                             btnConvert.setEnabled(true);
                             btnSelectImages.setEnabled(true);
@@ -229,12 +209,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void copyExifData(Uri sourceUri, File destFile) {
-        try {
+    private void copyExifData(Uri sourceUri, Uri destUri) {
+        if (destUri == null) return;
+        try (
             ExifInterface sourceExif = new ExifInterface(getContentResolver().openInputStream(sourceUri));
-            ExifInterface destExif = new ExifInterface(destFile.getAbsolutePath());
-
-            // 复制所有可用的EXIF标签
+            ExifInterface destExif = new ExifInterface(getContentResolver().openFileDescriptor(destUri, "rw").getFileDescriptor())
+        ) {
             String[] attributes = new String[]{
                     ExifInterface.TAG_DATETIME,
                     ExifInterface.TAG_EXPOSURE_TIME,
