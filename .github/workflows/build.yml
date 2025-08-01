@@ -21,12 +21,6 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: hannesa2/Android-setup-action@0.4.7
-        with:
-          sdkVersion: "33"
-          buildToolsVersion: "33.0.0"
-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -35,17 +29,19 @@ jobs:
 
       - name: Sign APK
         id: sign
-        uses: ilharp/sign-android-release@v1
+        uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "33.0.0"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-signed.apk
+          name: app-release-signed
           path: ${{ steps.sign.outputs.signedReleaseFile }}
           retention-days: 7
