@@ -211,10 +211,17 @@ public class MainActivity extends AppCompatActivity {
 
     private void copyExifData(Uri sourceUri, Uri destUri) {
         if (destUri == null) return;
-        try (
+        try {
             ExifInterface sourceExif = new ExifInterface(getContentResolver().openInputStream(sourceUri));
-            ExifInterface destExif = new ExifInterface(getContentResolver().openFileDescriptor(destUri, "rw").getFileDescriptor())
-        ) {
+            ExifInterface destExif;
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && 
+                destUri.getScheme() != null && destUri.getScheme().equals("content")) {
+                destExif = new ExifInterface(getContentResolver().openFileDescriptor(destUri, "rw").getFileDescriptor());
+            } else {
+                destExif = new ExifInterface(destUri.getPath());
+            }
+
             String[] attributes = new String[]{
                     ExifInterface.TAG_DATETIME,
                     ExifInterface.TAG_EXPOSURE_TIME,
